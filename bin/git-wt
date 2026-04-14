@@ -5,9 +5,44 @@ set -euo pipefail
 
 VERSION="0.1.0"
 
-msg() { printf '%s\n' "$*" >&2; }
-err() { printf 'error: %s\n' "$*" >&2; }
-die() { err "$*"; exit 1; }
+# --- colors -----------------------------------------------------------------
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RESET=$'\033[0m'
+  C_DIM=$'\033[2m'
+  C_BOLD=$'\033[1m'
+  C_RED=$'\033[31m'
+  C_GREEN=$'\033[32m'
+  C_YELLOW=$'\033[33m'
+  C_BLUE=$'\033[34m'
+  C_MAGENTA=$'\033[35m'
+  C_CYAN=$'\033[36m'
+else
+  C_RESET= C_DIM= C_BOLD= C_RED= C_GREEN= C_YELLOW= C_BLUE= C_MAGENTA= C_CYAN=
+fi
+
+msg()  { printf '%s\n' "$*" >&2; }
+info() { printf '%b\n' "${C_BLUE}==>${C_RESET} $*" >&2; }
+warn() { printf '%b\n' "${C_YELLOW}warning:${C_RESET} $*" >&2; }
+err()  { printf '%b\n' "${C_RED}error:${C_RESET} $*" >&2; }
+die()  { err "$*"; exit 1; }
+
+# Pretty report emitted after a switch/create/remove.
+# $1=action (e.g. "switched", "created"), $2=branch, $3=path, $4+=extra hints lines
+report() {
+  local action="$1" branch="$2" path="$3"; shift 3
+  printf '\n' >&2
+  printf '%b\n' "${C_GREEN}${C_BOLD}✓${C_RESET} ${C_BOLD}${action}${C_RESET} worktree" >&2
+  printf '%b\n' "  ${C_DIM}branch${C_RESET}  ${C_CYAN}${branch}${C_RESET}" >&2
+  printf '%b\n' "  ${C_DIM}path${C_RESET}    ${C_MAGENTA}${path}${C_RESET}" >&2
+  if [ "$#" -gt 0 ]; then
+    printf '\n%b\n' "  ${C_DIM}next:${C_RESET}" >&2
+    local line
+    for line in "$@"; do
+      printf '%b\n' "    ${C_DIM}\$${C_RESET} ${line}" >&2
+    done
+  fi
+  printf '\n' >&2
+}
 
 usage() {
   cat >&2 <<'EOF'
@@ -77,26 +112,36 @@ cmd_switch() {
   local existing
   existing=$(worktree_path_for_branch "$branch")
   if [ -n "$existing" ]; then
+    report "switched to" "$branch" "$existing" \
+      "git wt list" \
+      "git wt rm $branch"
     printf '%s\n' "$existing"
     return 0
   fi
 
-  local root dest
+  local root dest origin
   root=$(worktrees_root)
   dest="$root/$(sanitize_branch "$branch")"
   mkdir -p "$root"
 
   if local_branch_exists "$branch"; then
-    msg "creating worktree for existing local branch '$branch'"
+    info "creating worktree for existing local branch ${C_CYAN}${branch}${C_RESET}"
     git worktree add "$dest" "$branch" >&2
+    origin="local branch"
   elif remote_branch_exists "$branch"; then
-    msg "creating worktree tracking origin/$branch"
+    info "creating worktree tracking ${C_CYAN}origin/${branch}${C_RESET}"
     git worktree add --track -b "$branch" "$dest" "origin/$branch" >&2
+    origin="tracking origin/$branch"
   else
-    msg "creating new branch '$branch' and worktree"
+    info "creating new branch ${C_CYAN}${branch}${C_RESET} from current HEAD"
     git worktree add -b "$branch" "$dest" >&2
+    origin="new branch from HEAD"
   fi
 
+  report "created" "$branch ${C_DIM}(${origin})${C_RESET}" "$dest" \
+    "git wt list" \
+    "git push -u origin $branch" \
+    "git wt rm $branch"
   printf '%s\n' "$dest"
 }
 
@@ -104,11 +149,18 @@ cmd_list() {
   require_git_repo
   local current
   current=$(git rev-parse --show-toplevel)
-  git worktree list --porcelain | awk -v cur="$current" '
+  printf '\n%b\n\n' "${C_BOLD}worktrees${C_RESET}" >&2
+  git worktree list --porcelain | awk \
+    -v cur="$current" \
+    -v cr="$C_RESET" -v cdim="$C_DIM" -v cb="$C_BOLD" \
+    -v cgn="$C_GREEN" -v ccy="$C_CYAN" -v cmg="$C_MAGENTA" -v cyl="$C_YELLOW" '
     function emit() {
       if (path != "") {
-        mark = (path == cur) ? "*" : " "
-        printf "%s %-40s %s\n", mark, branch, path
+        if (path == cur) {
+          printf "  %s*%s %s%-40s%s %s%s%s\n", cgn, cr, cb ccy, branch, cr, cmg, path, cr
+        } else {
+          printf "    %s%-40s%s %s%s%s\n", ccy, branch, cr, cdim, path, cr
+        }
       }
       path=""; branch=""
     }
@@ -116,7 +168,9 @@ cmd_list() {
     /^branch /   { sub("refs/heads/","",$2); branch=$2 }
     /^detached/  { branch="(detached)" }
     END { emit() }
-  '
+  ' >&2
+  printf '\n%b\n' "  ${C_DIM}* = current${C_RESET}" >&2
+  printf '\n' >&2
 }
 
 cmd_rm() {
@@ -129,14 +183,17 @@ cmd_rm() {
   [ -z "$path" ] && die "no worktree found for branch '$branch'"
 
   if [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then
-    printf 'worktree at %s has uncommitted changes. remove anyway? [y/N] ' "$path" >&2
+    warn "worktree at ${C_MAGENTA}${path}${C_RESET} has uncommitted changes"
+    printf '%b' "remove anyway? ${C_DIM}[y/N]${C_RESET} " >&2
     read -r ans
-    case "$ans" in y|Y|yes|YES) ;; *) msg "aborted"; exit 1;; esac
+    case "$ans" in y|Y|yes|YES) ;; *) info "aborted"; exit 1;; esac
     git worktree remove --force "$path"
   else
     git worktree remove "$path"
   fi
-  msg "removed worktree $path"
+  report "removed" "$branch" "$path" \
+    "git branch -d $branch  ${C_DIM}# if you also want to delete the branch${C_RESET}" \
+    "git wt list"
 }
 
 case "${1:-help}" in
