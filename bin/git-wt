@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# git-wt — streamlined git worktree workflow
+# https://github.com/Miguelslo27/git-wt
+set -euo pipefail
+
+VERSION="0.1.0"
+
+msg() { printf '%s\n' "$*" >&2; }
+err() { printf 'error: %s\n' "$*" >&2; }
+die() { err "$*"; exit 1; }
+
+usage() {
+  cat >&2 <<'EOF'
+git-wt — streamlined git worktree workflow
+
+Usage:
+  git wt switch [<branch>]   Switch to worktree for <branch> (creates if missing).
+                             No arg opens an fzf picker over existing worktrees.
+  git wt list                List worktrees (marks the current one).
+  git wt rm <branch>         Remove the worktree for <branch>.
+  git wt help                Show this help.
+  git wt version             Show version.
+
+Note: `switch` needs a shell wrapper to `cd` into the target worktree. It is
+installed into your shell rc by install.sh.
+EOF
+}
+
+require_git_repo() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "not inside a git repository"
+}
+
+main_worktree_path() {
+  git worktree list --porcelain | awk '/^worktree /{print $2; exit}'
+}
+
+worktrees_root() {
+  local main parent
+  main=$(main_worktree_path)
+  parent=$(dirname "$main")
+  printf '%s/%s-worktrees\n' "$parent" "$(basename "$main")"
+}
+
+sanitize_branch() {
+  printf '%s\n' "$1" | tr '/' '-'
+}
+
+worktree_path_for_branch() {
+  local branch="$1"
+  git worktree list --porcelain | awk -v b="refs/heads/$branch" '
+    /^worktree /{p=$2}
+    /^branch /{ if ($2==b) { print p; exit } }
+  '
+}
+
+local_branch_exists()  { git show-ref --verify --quiet "refs/heads/$1"; }
+remote_branch_exists() { git show-ref --verify --quiet "refs/remotes/origin/$1"; }
+
+cmd_switch() {
+  require_git_repo
+  local branch="${1:-}"
+
+  if [ -z "$branch" ]; then
+    if ! command -v fzf >/dev/null 2>&1; then
+      err "fzf not installed — pass a branch name, or install fzf:"
+      err "  macOS:  brew install fzf"
+      err "  Debian: sudo apt install fzf"
+      exit 2
+    fi
+    branch=$(git worktree list --porcelain \
+      | awk '/^branch /{sub("refs/heads/","",$2); print $2}' \
+      | fzf --height=40% --reverse --prompt='worktree> ') || exit 0
+    [ -z "$branch" ] && exit 0
+  fi
+
+  local existing
+  existing=$(worktree_path_for_branch "$branch")
+  if [ -n "$existing" ]; then
+    printf '%s\n' "$existing"
+    return 0
+  fi
+
+  local root dest
+  root=$(worktrees_root)
+  dest="$root/$(sanitize_branch "$branch")"
+  mkdir -p "$root"
+
+  if local_branch_exists "$branch"; then
+    msg "creating worktree for existing local branch '$branch'"
+    git worktree add "$dest" "$branch" >&2
+  elif remote_branch_exists "$branch"; then
+    msg "creating worktree tracking origin/$branch"
+    git worktree add --track -b "$branch" "$dest" "origin/$branch" >&2
+  else
+    msg "creating new branch '$branch' and worktree"
+    git worktree add -b "$branch" "$dest" >&2
+  fi
+
+  printf '%s\n' "$dest"
+}
+
+cmd_list() {
+  require_git_repo
+  local current
+  current=$(git rev-parse --show-toplevel)
+  git worktree list --porcelain | awk -v cur="$current" '
+    function emit() {
+      if (path != "") {
+        mark = (path == cur) ? "*" : " "
+        printf "%s %-40s %s\n", mark, branch, path
+      }
+      path=""; branch=""
+    }
+    /^worktree / { emit(); path=$2 }
+    /^branch /   { sub("refs/heads/","",$2); branch=$2 }
+    /^detached/  { branch="(detached)" }
+    END { emit() }
+  '
+}
+
+cmd_rm() {
+  require_git_repo
+  local branch="${1:-}"
+  [ -z "$branch" ] && die "usage: git wt rm <branch>"
+
+  local path
+  path=$(worktree_path_for_branch "$branch")
+  [ -z "$path" ] && die "no worktree found for branch '$branch'"
+
+  if [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then
+    printf 'worktree at %s has uncommitted changes. remove anyway? [y/N] ' "$path" >&2
+    read -r ans
+    case "$ans" in y|Y|yes|YES) ;; *) msg "aborted"; exit 1;; esac
+    git worktree remove --force "$path"
+  else
+    git worktree remove "$path"
+  fi
+  msg "removed worktree $path"
+}
+
+case "${1:-help}" in
+  switch)            shift; cmd_switch "$@" ;;
+  list|ls)           shift || true; cmd_list ;;
+  rm|remove)         shift; cmd_rm "$@" ;;
+  help|-h|--help)    usage ;;
+  version|--version) echo "$VERSION" ;;
+  *) usage; exit 1 ;;
+esac
