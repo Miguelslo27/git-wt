@@ -1,6 +1,6 @@
 ---
 name: git-wt
-description: Suggest and manage isolated git worktrees with the `git wt` CLI. Activates when the user asks for worktree operations; when they are on a protected branch (main, master, develop, dev, staging, stage, stg, production, prod, release/*, hotfix/*) and the task is non-trivial; when uncommitted changes could conflict with the task; or when the user is on a non-main worktree whose branch is unrelated to the requested task. Does not activate for trivial edits, read-only questions, or after the user has declined a worktree suggestion earlier in the session.
+description: Consult this skill at the start of any task that will modify code in a git repository (implement, add, create, build, refactor, fix, change, update, experiment) and also when the user explicitly mentions worktrees, isolation, parallel branches, or working without affecting their current branch. The skill decides whether to suggest an isolated worktree based on the current branch, dirty state, and task scope, and manages worktrees via the `git wt` CLI. Skip the suggestion for trivial edits, read-only questions, or after the user has declined earlier in the session.
 ---
 
 # git-wt skill
