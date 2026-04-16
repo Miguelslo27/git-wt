@@ -107,14 +107,16 @@ inject_wrapper() {
   local rc="$1"
   [ -e "$rc" ] || touch "$rc"
   if grep -qF "$MARKER_START" "$rc"; then
-    local tmp
+    local tmp perms
     tmp=$(mktemp)
+    perms=$(stat -f '%Lp' "$rc" 2>/dev/null || stat -c '%a' "$rc" 2>/dev/null || echo "644")
     awk -v s="$MARKER_START" -v e="$MARKER_END" '
       BEGIN { skip=0 }
       $0==s { skip=1; next }
       $0==e && skip { skip=0; next }
       !skip { print }
     ' "$rc" > "$tmp"
+    chmod "$perms" "$tmp"
     mv "$tmp" "$rc"
     printf '\n%s\n' "$WRAPPER" >> "$rc"
     info "updated wrapper in $rc"
