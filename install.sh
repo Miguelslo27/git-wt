@@ -22,8 +22,11 @@ SKILL_TARGETS=(
 SKILL_MODE=""          # "" | "all" | "none" | "select"
 SKILL_SELECT=""        # comma list when MODE=select
 
-WRAPPER=$(cat <<'EOF'
-# >>> git-wt >>>
+build_wrapper() {
+  printf '%s\n' "$MARKER_START"
+  printf 'case ":$PATH:" in *":%s:"*) ;; *) export PATH="%s:$PATH" ;; esac\n' \
+    "$INSTALL_DIR" "$INSTALL_DIR"
+  cat <<'FUNC'
 git() {
   if [ "$1" = "wt" ] && [ "$2" = "switch" ]; then
     shift 2
@@ -34,9 +37,10 @@ git() {
     command git "$@"
   fi
 }
-# <<< git-wt <<<
-EOF
-)
+FUNC
+  printf '%s\n' "$MARKER_END"
+}
+WRAPPER=$(build_wrapper)
 
 # --- colors (stderr is a tty) ------------------------------------------------
 if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -124,11 +128,7 @@ check_path() {
   case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *)
-      warn "$INSTALL_DIR is not in your \$PATH"
-      add_step "Add to your shell rc and restart:
-
-     ${_CYN}export PATH=\"$INSTALL_DIR:\$PATH\"${_C}
-"
+      info "added ${_CYN}export PATH=\"$INSTALL_DIR:\$PATH\"${_C} to your shell rc"
       ;;
   esac
 }
