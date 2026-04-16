@@ -98,9 +98,22 @@ cmd_switch() {
 
   if [ -z "$branch" ]; then
     if ! command -v fzf >/dev/null 2>&1; then
-      err "fzf not installed — pass a branch name, or install fzf:"
-      err "  macOS:  brew install fzf"
-      err "  Debian: sudo apt install fzf"
+      err "fzf is required for the interactive picker"
+      msg ""
+      msg "  ${C_BOLD}install fzf:${C_RESET}"
+      msg ""
+      if command -v brew >/dev/null 2>&1; then
+        msg "     ${C_CYAN}brew install fzf${C_RESET}"
+      elif command -v apt-get >/dev/null 2>&1; then
+        msg "     ${C_CYAN}sudo apt install fzf${C_RESET}"
+      elif command -v pacman >/dev/null 2>&1; then
+        msg "     ${C_CYAN}sudo pacman -S fzf${C_RESET}"
+      elif command -v dnf >/dev/null 2>&1; then
+        msg "     ${C_CYAN}sudo dnf install fzf${C_RESET}"
+      fi
+      msg ""
+      msg "  ${C_DIM}or pass a branch name directly: git wt switch <branch>${C_RESET}"
+      msg ""
       exit 2
     fi
     branch=$(git worktree list --porcelain \

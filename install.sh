@@ -38,9 +38,32 @@ git() {
 EOF
 )
 
-info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
-err()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; }
+# --- colors (stderr is a tty) ------------------------------------------------
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+  _C=$'\033[0m' _B=$'\033[1m' _DIM=$'\033[2m'
+  _GRN=$'\033[32m' _YLW=$'\033[33m' _RED=$'\033[31m' _CYN=$'\033[36m'
+else
+  _C= _B= _DIM= _GRN= _YLW= _RED= _CYN=
+fi
+
+info() { printf '%b\n' "${_GRN}${_B}==>${_C} $*"; }
+warn() { printf '%b\n' "${_YLW}warning:${_C} $*" >&2; }
+err()  { printf '%b\n' "${_RED}error:${_C} $*" >&2; }
+
+# Accumulator for "next steps" block printed at the end.
+NEXT_STEPS=()
+add_step() { NEXT_STEPS+=("$1"); }
+
+print_next_steps() {
+  [ "${#NEXT_STEPS[@]}" -eq 0 ] && return
+  printf '\n%b\n\n' "${_B}next steps:${_C}" >&2
+  local i=1
+  for step in "${NEXT_STEPS[@]}"; do
+    printf '  %b\n' "${_DIM}${i}.${_C} ${step}" >&2
+    i=$((i + 1))
+  done
+  printf '\n' >&2
+}
 
 usage() {
   cat <<EOF
@@ -82,13 +105,14 @@ inject_wrapper() {
   if grep -qF "$MARKER_START" "$rc"; then
     local tmp
     tmp=$(mktemp)
-    awk -v s="$MARKER_START" -v e="$MARKER_END" -v w="$WRAPPER" '
+    awk -v s="$MARKER_START" -v e="$MARKER_END" '
       BEGIN { skip=0 }
-      $0==s { print w; skip=1; next }
+      $0==s { skip=1; next }
       $0==e && skip { skip=0; next }
       !skip { print }
     ' "$rc" > "$tmp"
     mv "$tmp" "$rc"
+    printf '\n%s\n' "$WRAPPER" >> "$rc"
     info "updated wrapper in $rc"
   else
     printf '\n%s\n' "$WRAPPER" >> "$rc"
@@ -100,19 +124,35 @@ check_path() {
   case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *)
-      warn "$INSTALL_DIR is not in your \$PATH. Add to your shell rc:"
-      printf '  export PATH="%s:$PATH"\n' "$INSTALL_DIR"
+      warn "$INSTALL_DIR is not in your \$PATH"
+      add_step "Add to your shell rc and restart:
+
+     ${_CYN}export PATH=\"$INSTALL_DIR:\$PATH\"${_C}
+"
       ;;
   esac
 }
 
 check_fzf() {
   if ! command -v fzf >/dev/null 2>&1; then
-    warn "fzf not found (optional — enables interactive 'git wt switch')"
+    warn "fzf not found (optional — enables interactive ${_B}git wt switch${_C})"
+    local cmd=""
     if command -v brew >/dev/null 2>&1; then
-      printf '  install with: brew install fzf\n'
+      cmd="brew install fzf"
     elif command -v apt-get >/dev/null 2>&1; then
-      printf '  install with: sudo apt install fzf\n'
+      cmd="sudo apt install fzf"
+    elif command -v pacman >/dev/null 2>&1; then
+      cmd="sudo pacman -S fzf"
+    elif command -v dnf >/dev/null 2>&1; then
+      cmd="sudo dnf install fzf"
+    fi
+    if [ -n "$cmd" ]; then
+      add_step "Install fzf ${_DIM}(optional — enables interactive picker)${_C}:
+
+     ${_CYN}${cmd}${_C}
+"
+    else
+      add_step "Install fzf ${_DIM}(optional — enables interactive picker)${_C}"
     fi
   fi
 }
@@ -204,7 +244,9 @@ install_skill() {
             break
           fi
         done
-        [ "$matched" = 0 ] && warn "unknown skill target: $name"
+        if [ "$matched" = 0 ]; then
+          warn "unknown skill target: $name"
+        fi
       done
       ;;
   esac
@@ -221,13 +263,20 @@ main() {
   if [ -f "$HOME/.bashrc" ] || [ "${SHELL##*/}" = "bash" ]; then
     inject_wrapper "$HOME/.bashrc"; touched=1
   fi
-  [ "$touched" = 0 ] && warn "no ~/.zshrc or ~/.bashrc found — add the wrapper manually"
+  if [ "$touched" = 0 ]; then
+    warn "no ~/.zshrc or ~/.bashrc found — add the wrapper manually"
+  fi
 
   check_path
   check_fzf
   install_skill
 
-  info "done. Restart your shell or: source ~/.zshrc  (or ~/.bashrc)"
+  add_step "Restart your shell or run:
+
+     ${_CYN}source ~/.zshrc${_C}  ${_DIM}(or ~/.bashrc)${_C}"
+
+  info "installation complete"
+  print_next_steps
 }
 
 main "$@"
