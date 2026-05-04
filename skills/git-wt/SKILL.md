@@ -47,6 +47,86 @@ When creating a new worktree, propose a branch name derived from the task:
 
 Confirm the name with the user before creating.
 
+## Base branch policy
+
+**Applies only to creating a new branch.** Switching into an already-existing branch (local or `origin/`) does not use this policy — `git wt switch <existing>` brings the branch as-is.
+
+When creating a new branch (`feature/*`, `fix/*`, `refactor/*`, `experiment/*`), the new branch must always be cut from the **latest** `dev` — or from the latest `main` if `dev` exists neither locally nor on `origin`.
+
+### Resolve the base
+
+Use `dev` when either ref exists:
+
+```sh
+git show-ref --verify --quiet refs/heads/dev \
+  || git show-ref --verify --quiet refs/remotes/origin/dev
+```
+
+Otherwise use `main`. Same rule for every prefix listed in *Branch naming* — `experiment/*` is not exempt.
+
+### Update the base before creating
+
+1. Refresh remote refs:
+
+   ```sh
+   git fetch origin --prune
+   ```
+
+2. Locate which worktree, if any, has `<base>` as HEAD by parsing `git worktree list --porcelain`.
+
+3. **Path A — `<base>` is checked out in some worktree `<base-wt>`:**
+
+   1. If `git -C <base-wt> status --porcelain` is non-empty (dirty), stash with an identifiable message:
+
+      ```sh
+      git -C <base-wt> stash push -u -m "git-wt: pre-pull $(date +%s)"
+      ```
+
+      The `-u` flag includes untracked files so nothing is left behind.
+
+   2. Fast-forward the base:
+
+      ```sh
+      git -C <base-wt> pull --ff-only
+      ```
+
+   3. If a stash was created in step 3.i, restore it:
+
+      ```sh
+      git -C <base-wt> stash pop
+      ```
+
+   4. Create the new branch from there. The CLI creates from HEAD, which is now the updated base:
+
+      ```sh
+      cd <base-wt> && git wt switch <new-branch>
+      ```
+
+4. **Path B — `<base>` is not checked out in any worktree:**
+
+   1. Fast-forward the local ref directly, without needing a working tree:
+
+      ```sh
+      git fetch origin <base>:<base>
+      ```
+
+      This updates `refs/heads/<base>` in place. No stash dance is needed because there is no working tree to disturb.
+
+   2. Create the new worktree from the updated local ref using raw `git worktree`:
+
+      ```sh
+      git worktree add -b <new-branch> <dest> <base>
+      ```
+
+      where `<dest>` follows the existing layout: `<parent>/<repo>-worktrees/<sanitized-branch>` (`/` flattened to `-`).
+
+### Stop and ask the user when
+
+The agent must surface and stop instead of resolving automatically:
+
+- **`pull --ff-only` fails because the local `<base>` has diverged from `origin/<base>`** (local commits ahead, or history rewritten). Do not `rebase`, `merge`, or `reset --hard` without explicit consent.
+- **`stash pop` reports a conflict** — the remote modified files the user had also modified. The original changes remain in `git stash list` (recoverable with `git stash apply <ref>`); tell the user the worktree at `<base-wt>` has conflict markers and let them resolve.
+
 ## Commands
 
 ### Create or switch
@@ -56,6 +136,7 @@ git wt switch <branch>
 ```
 
 - Creates the worktree if it does not exist. Tracks `origin/<branch>` when that remote branch exists, otherwise creates a new local branch from `HEAD`.
+- **When `<branch>` is new (no local ref, no `origin/<branch>`), follow [Base branch policy](#base-branch-policy) first.** The CLI itself always cuts from current `HEAD`, so positioning HEAD on the updated base — or using the raw `git worktree add` fallback — is the agent's responsibility.
 - Prints a human-readable report to **stderr**.
 - Prints the **target path as the last line of stdout**. Capture it like this:
 
