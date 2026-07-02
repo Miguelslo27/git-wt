@@ -11,7 +11,7 @@ Newest first. Each entry references the PR(s) that delivered the work.
 ## 2026-07
 
 ### Automated smoke-test suite + CI — 2026-07-01
-**PR:** _pending_ (branch `feature/smoke-tests-ci`)
+**PR:** [#13](https://github.com/AkaLab-Tech/git-wt/pull/13) — branch `feature/smoke-tests-ci`
 
 The repo shipped a 555-line load-bearing bash CLI with zero automated tests; the stdout-last-line-is-path contract that the shell wrapper depends on was only verified by hand. This PR adds a hermetic test suite and a GitHub Actions workflow so every PR proves the contract still holds.
 
