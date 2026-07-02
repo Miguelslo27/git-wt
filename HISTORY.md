@@ -8,7 +8,20 @@ Newest first. Each entry references the PR(s) that delivered the work.
 
 ---
 
-## 2026-05
+## 2026-07
+
+### Automated smoke-test suite + CI — 2026-07-01
+**PR:** _pending_ (branch `feature/smoke-tests-ci`)
+
+The repo shipped a 555-line load-bearing bash CLI with zero automated tests; the stdout-last-line-is-path contract that the shell wrapper depends on was only verified by hand. This PR adds a hermetic test suite and a GitHub Actions workflow so every PR proves the contract still holds.
+
+**Delivered:**
+- `tests/git-wt.test.sh` — dependency-free (plain bash, no bats) smoke tests: builds a throwaway repo fixture in `mktemp -d`, sandboxes `HOME` / `XDG_CACHE_HOME` / `XDG_CONFIG_HOME` so real user cache/config is never touched, and drives `bin/git-wt` with `GWT_NO_VERSION_CHECK=1` / `--no-version-check` and non-tty stdin. 51 assertions covering: `switch` create/existing (path on stdout's last line, decoration on stderr only), `--from <base>` cutting from the named base (not current HEAD) and erroring on existing/checked-out branches, `list` starring the current worktree with empty stdout, `rm` on clean worktrees returning the main worktree path, `rm` on dirty worktrees aborting without force-removal when stdin is non-tty, refusal to remove the main worktree, unknown-flag errors, `.env` propagation on create plus the `GWT_NO_ENV=1` opt-out, a `bash -n` syntax gate over all three shipped scripts, and a non-empty semver-shaped `VERSION` check against `bin/git-wt:6`.
+- `.github/workflows/ci.yml` — runs on `pull_request` and `push` to `main` with `permissions: contents: read`; two ubuntu jobs: `shellcheck --shell=bash --severity=warning` over `bin/git-wt`, `install.sh`, `uninstall.sh`, `tests/*.sh`, and the test suite itself.
+- Lint-only source fixes so shellcheck passes at `-S warning`: empty color assignments now use `var=''` (SC1007) in `bin/git-wt:30` and `install.sh:55`, and the malformed directive `# shellcheck disable=SC2086 -- …` at `bin/git-wt:228` (a SC1072/SC1073 parse error) now uses the valid `# comment` form. No behavior change.
+- `CLAUDE.md` — the "no linters or tests" claim replaced by a "Tests and linting" section documenting how to run both.
+
+**Tests:** `bash tests/git-wt.test.sh` → 51 passed, 0 failed (macOS, bash); `shellcheck -S warning -s bash bin/git-wt install.sh uninstall.sh tests/*.sh` clean (shellcheck 0.11.0); `bash -n` passes on all scripts. No genuine behavioral bugs surfaced — dirty-`rm` with non-tty stdin correctly aborts via `read` EOF under `set -euo pipefail` before any `--force` removal.
 
 ### Ignore `.claude/` directory — 2026-05-22
 **PR:** [#9](https://github.com/AkaLab-Tech/git-wt/pull/9)

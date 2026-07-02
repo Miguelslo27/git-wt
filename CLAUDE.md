@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A small Bash project: a single-file CLI (`bin/git-wt`) that wraps `git worktree` so that `git wt switch <branch>` can both create the worktree and move the user's shell into it. There is no build system, package manager, or test suite — everything is plain `bash` + `awk`.
+A small Bash project: a single-file CLI (`bin/git-wt`) that wraps `git worktree` so that `git wt switch <branch>` can both create the worktree and move the user's shell into it. There is no build system or package manager — everything is plain `bash` + `awk`. Tests live in `tests/git-wt.test.sh` (see below).
 
 ## Common commands
 
@@ -20,7 +20,14 @@ bin/git-wt help                 # run the CLI directly without installing
 bin/git-wt version              # bump VERSION at bin/git-wt:6 when releasing
 ```
 
-There are no linters or tests configured. When changing `bin/git-wt`, exercise it manually in a throwaway repo (create / switch / list / rm with both clean and dirty trees).
+## Tests and linting
+
+```sh
+bash tests/git-wt.test.sh                                          # run the smoke-test suite
+shellcheck -S warning -s bash bin/git-wt install.sh uninstall.sh tests/*.sh   # lint
+```
+
+`tests/git-wt.test.sh` is hermetic and dependency-free (plain bash, no bats): it builds a throwaway repo fixture under `mktemp -d`, redirects `HOME` / `XDG_CACHE_HOME` / `XDG_CONFIG_HOME` into the sandbox so real user state is never touched, and drives `bin/git-wt` with `GWT_NO_VERSION_CHECK=1` / `--no-version-check` and non-tty stdin. It covers the stdout-path contract for `switch` and `rm`, `--from` semantics, `list` marking, dirty/main-worktree `rm` safety, unknown flags, `.env` propagation, a `bash -n` syntax gate, and a semver check on `VERSION`. Both the suite and shellcheck run in CI (`.github/workflows/ci.yml`) on every PR and push to `main` — keep them green. For behavior the suite doesn't cover, still exercise `bin/git-wt` manually in a throwaway repo.
 
 ## Architecture — the two halves
 
