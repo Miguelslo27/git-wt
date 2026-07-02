@@ -27,7 +27,7 @@ if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
   C_MAGENTA=$'\033[35m'
   C_CYAN=$'\033[36m'
 else
-  C_RESET= C_DIM= C_BOLD= C_RED= C_GREEN= C_YELLOW= C_BLUE= C_MAGENTA= C_CYAN=
+  C_RESET='' C_DIM='' C_BOLD='' C_RED='' C_GREEN='' C_YELLOW='' C_BLUE='' C_MAGENTA='' C_CYAN=''
 fi
 
 msg()  { printf '%s\n' "$*" >&2; }
@@ -225,7 +225,7 @@ prompt_install() {
           continue
         fi
         info "running ${C_DIM}\$${C_RESET} ${cmd} ${C_DIM}(in ${dest})${C_RESET}"
-        # shellcheck disable=SC2086 -- intentional word-splitting on cmd
+        # shellcheck disable=SC2086 # intentional word-splitting on cmd
         (cd "$dest" && $cmd) >&2 || warn "${C_CYAN}${name}${C_RESET} install failed (continuing)"
         ;;
       *)

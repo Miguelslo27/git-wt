@@ -52,7 +52,7 @@ if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
   _C=$'\033[0m' _B=$'\033[1m' _DIM=$'\033[2m'
   _GRN=$'\033[32m' _YLW=$'\033[33m' _RED=$'\033[31m' _CYN=$'\033[36m'
 else
-  _C= _B= _DIM= _GRN= _YLW= _RED= _CYN=
+  _C='' _B='' _DIM='' _GRN='' _YLW='' _RED='' _CYN=''
 fi
 
 info() { printf '%b\n' "${_GRN}${_B}==>${_C} $*"; }
