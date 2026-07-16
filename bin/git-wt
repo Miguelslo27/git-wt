@@ -110,7 +110,7 @@ require_git_repo() {
 }
 
 main_worktree_path() {
-  git worktree list --porcelain | awk '/^worktree /{print $2; exit}'
+  git worktree list --porcelain | awk '/^worktree /{sub(/^worktree /,""); print; exit}'
 }
 
 worktrees_root() {
@@ -127,7 +127,7 @@ sanitize_branch() {
 worktree_path_for_branch() {
   local branch="$1"
   git worktree list --porcelain | awk -v b="refs/heads/$branch" '
-    /^worktree /{p=$2}
+    /^worktree /{p=$0; sub(/^worktree /,"",p)}
     /^branch /{ if ($2==b) { print p; exit } }
   '
 }
@@ -378,7 +378,7 @@ cmd_list() {
       }
       path=""; branch=""
     }
-    /^worktree / { emit(); path=$2 }
+    /^worktree / { emit(); p=$0; sub(/^worktree /,"",p); path=p }
     /^branch /   { sub("refs/heads/","",$2); branch=$2 }
     /^detached/  { branch="(detached)" }
     END { emit() }

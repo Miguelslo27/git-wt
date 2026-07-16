@@ -266,6 +266,76 @@ else
   pass "switch feature/noenv: GWT_NO_ENV=1 skips the env copy"
 fi
 
+# --- 10. switch: PARENT directory containing a space yields the FULL untruncated path (regression: #218) ---
+# Before the fix, main_worktree_path() / worktree_path_for_branch() parsed the
+# porcelain "worktree <path>" line with awk $2, truncating at the first space.
+# A spaced PARENT directory alone is enough to corrupt worktrees_root() (which
+# derives the new worktree's location from main_worktree_path()), so this
+# doesn't even need a spaced branch name to reproduce.
+SPACE_FIXTURE="$SANDBOX/my work/repo"
+SPACE_WT_ROOT="$SANDBOX/my work/repo-worktrees"
+mkdir -p "$SPACE_FIXTURE"
+git -C "$SPACE_FIXTURE" init -q
+git -C "$SPACE_FIXTURE" symbolic-ref HEAD refs/heads/main
+printf 'hello\n' > "$SPACE_FIXTURE/file.txt"
+git -C "$SPACE_FIXTURE" add file.txt
+git -C "$SPACE_FIXTURE" commit -qm "initial commit"
+
+run_gwt "$SPACE_FIXTURE" GWT_NO_ENV=1 GWT_NO_DEPS=1 -- switch feature/a
+assert_rc_zero "spaced parent: switch feature/a exits 0" "$RC"
+assert_dir_exists "spaced parent: worktree created at <parent>/<repo>-worktrees/feature-a (full path)" "$SPACE_WT_ROOT/feature-a"
+assert_eq "spaced parent: stdout last line is the FULL untruncated path" "$SPACE_WT_ROOT/feature-a" "$(last_stdout_line)"
+if printf '%s' "$(last_stdout_line)" | grep -q ' '; then
+  pass "spaced parent: printed path retains the space (not truncated at 'my')"
+else
+  fail "spaced parent: printed path retains the space (not truncated at 'my')" "got: $(last_stdout_line)"
+fi
+
+# --- 11. rm: spaced-path worktree removal must not destroy an unrelated worktree (regression: #218 data loss) ---
+# Reproduces the original data-loss bug directly: a worktree whose PATH contains a
+# space used to have its awk-parsed path truncated at the first space by
+# worktree_path_for_branch(), so `git wt rm <branch-of-the-spaced-worktree>` resolved
+# to whatever OTHER worktree's path happened to match that truncated prefix and
+# removed IT instead of the one the caller asked for. Here the truncated form of
+# "$WT_ROOT/feature-x b" is exactly "$WT_ROOT/feature-x" — the unrelated worktree
+# below — so on the old code `git wt rm spacebranch` force-removes the WRONG
+# worktree (and its untracked, unrecoverable file) while leaving the intended
+# "feature-x b" worktree untouched. On the fixed code only the intended worktree
+# is ever touched.
+SPACED_PATH="$WT_ROOT/feature-x b"
+PLAIN_PATH="$WT_ROOT/feature-x"
+git -C "$FIXTURE" worktree add -q -b spacebranch "$SPACED_PATH" main
+git -C "$FIXTURE" worktree add -q -b plain-coexist "$PLAIN_PATH" main
+printf 'do not delete me\n' > "$PLAIN_PATH/untracked.txt"
+
+# Pipe "y" so that IF the old bug misdirects rm at the (dirty) plain worktree, the
+# "remove anyway?" prompt is answered and the destructive `--force` path actually
+# runs — faithfully reproducing the reported force-removal of the wrong worktree.
+# On the fixed code the resolved (spaced) worktree is clean, so no prompt is shown
+# and this piped input is simply never read.
+RC=0
+(cd "$FIXTURE" && printf 'y\n' | env GWT_NO_VERSION_CHECK=1 GWT_NO_ENV=1 GWT_NO_DEPS=1 \
+  "$GWT_BIN" rm spacebranch --no-version-check >"$STDOUT_F" 2>"$STDERR_F") || RC=$?
+
+assert_rc_zero "rm spacebranch (spaced path): exits 0" "$RC"
+assert_dir_missing "rm spacebranch: the SPACED worktree (feature-x b) is gone" "$SPACED_PATH"
+assert_dir_exists "rm spacebranch: the unrelated PLAIN worktree (feature-x) survives" "$PLAIN_PATH"
+if [ -f "$PLAIN_PATH/untracked.txt" ] && [ "$(cat "$PLAIN_PATH/untracked.txt")" = "do not delete me" ]; then
+  pass "rm spacebranch: unrelated worktree's untracked file survives intact"
+else
+  fail "rm spacebranch: unrelated worktree's untracked file survives intact" "missing or corrupted: $PLAIN_PATH/untracked.txt"
+fi
+if git -C "$FIXTURE" worktree list --porcelain | awk '/^worktree /{sub(/^worktree /,""); print}' | grep -qxF "$SPACED_PATH"; then
+  fail "rm spacebranch: spaced worktree no longer registered with git" "still present in 'git worktree list'"
+else
+  pass "rm spacebranch: spaced worktree no longer registered with git"
+fi
+if git -C "$FIXTURE" worktree list --porcelain | awk '/^worktree /{sub(/^worktree /,""); print}' | grep -qxF "$PLAIN_PATH"; then
+  pass "rm spacebranch: plain worktree still registered with git"
+else
+  fail "rm spacebranch: plain worktree still registered with git" "missing from 'git worktree list'"
+fi
+
 # --- summary ---------------------------------------------------------------------------------------
 printf '\n# %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
